@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import './styles.css';
 
-const API = 'http://localhost:4000';
+const API = '';
 
 export default function App() {
   const [user, setUser] = useState(() => localStorage.getItem('user'));

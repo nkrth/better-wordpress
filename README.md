@@ -1,5 +1,7 @@
 # CollabPress
 
+Live demo: https://deeper-windsor-political-buddy.trycloudflare.com
+
 Collaborative article publishing platform.
 
 ## Setup
