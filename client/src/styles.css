@@ -1,9 +1,10 @@
 * { box-sizing: border-box; }
+button { color:#1a140c; }
 body { font-family: Georgia, serif; background: #faf7f2; color: #1a140c; margin:0; }
 .app { min-height: 100vh; }
 .nav { display:flex; justify-content:space-between; align-items:center; padding:12px 24px; background:#e8ddc8; border-bottom:1px solid #c9b99a; }
 .brand { font-weight:bold; cursor:pointer; font-size:1.2rem; }
-.nav-links button { margin-left:8px; background:none; border:1px solid #c9b99a; padding:4px 10px; cursor:pointer; font-family:inherit; }
+.nav-links button { margin-left:8px; background:#fffaf0; border:1px solid #8a7a5e; padding:4px 10px; cursor:pointer; font-family:inherit; color:#1a140c; }
 .userbadge { margin-left:12px; font-style:italic; }
 
 .username-entry { max-width:480px; margin:120px auto; text-align:center; }

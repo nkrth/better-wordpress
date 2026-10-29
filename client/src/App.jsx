@@ -243,7 +243,7 @@ function Comments({ articleId, user }) {
         </div>
         {editingId===c.id ? (
           <div>
-            <textarea value={editText} onChange={e=>setEditText(e.target.value)} />
+            <div className="comment-edit" contentEditable suppressContentEditableWarning onInput={e=>setEditText(e.currentTarget.innerHTML)} dangerouslySetInnerHTML={{__html: editText}} />
             <button onClick={async()=>{ await fetch(API+'/api/comments/'+c.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:editText})}); const r=await fetch(API+'/api/articles/'+articleId+'/comments'); setComments(await r.json()); setEditingId(null); }}>Save</button>
             <button onClick={()=>setEditingId(null)}>Cancel</button>
           </div>
