@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS comment_edits (id INTEGER PRIMARY KEY AUTOINCREMENT, 
 CREATE TABLE IF NOT EXISTS reactions (comment_id INTEGER NOT NULL, username TEXT NOT NULL, emoji TEXT NOT NULL, PRIMARY KEY (comment_id, username, emoji));
 CREATE TABLE IF NOT EXISTS chatrooms (id INTEGER PRIMARY KEY AUTOINCREMENT, comment_id INTEGER NOT NULL UNIQUE, article_id INTEGER NOT NULL, created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, chatroom_id INTEGER NOT NULL, username TEXT NOT NULL, text TEXT NOT NULL, created_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS chat_reads (username TEXT NOT NULL, chatroom_id INTEGER NOT NULL, last_read_at INTEGER NOT NULL, PRIMARY KEY (username, chatroom_id));
 `);
 
 module.exports = db;

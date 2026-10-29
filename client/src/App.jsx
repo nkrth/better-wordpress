@@ -8,13 +8,19 @@ export default function App() {
   const [user, setUser] = useState(() => localStorage.getItem('user'));
   const [view, setView] = useState('landing'); // landing | catalogue | editor | article
   const [selected, setSelected] = useState(null);
+  const [selectedAuthor, setSelectedAuthor] = useState(null);
   const [articles, setArticles] = useState([]);
   const [requests, setRequests] = useState([]);
+  const [unread, setUnread] = useState(0);
 
   useEffect(() => {
     if (!user) return;
     fetch(API+'/api/requests').then(r=>r.json()).then(setRequests);
     fetch(API+'/api/articles').then(r=>r.json()).then(setArticles);
+    const loadUnread = () => fetch(API+'/api/unread?username='+encodeURIComponent(user)).then(r=>r.json()).then(d=>setUnread(d.unread)).catch(()=>{});
+    loadUnread();
+    const iv = setInterval(loadUnread, 10000);
+    return () => clearInterval(iv);
   }, [user, view]);
 
   const login = async (name) => {
@@ -34,13 +40,14 @@ export default function App() {
           <button onClick={()=>setView('catalogue')}>Catalogue</button>
           <button onClick={()=>setView('sitemap')}>Sitemap</button>
           <button onClick={()=>{setSelected(null); setView('editor');}}>New Article</button>
-          <span className="userbadge">{user}</span>
+          <span className="userbadge">{user} {unread>0 && <span className="unread-badge">{unread}</span>}</span>
         </div>
       </nav>
       {view==='landing' && <Landing requests={requests} setRequests={setRequests} user={user} setView={setView} setSelected={setSelected} articles={articles} />}
       {view==='catalogue' && <Catalogue articles={articles} onSelect={(a)=>{setSelected(a); setView('article');}} />}
       {view==='editor' && <Editor user={user} articleId={selected?.id} onPublish={(id)=>{setSelected({id}); setView('article');}} />}
-      {view==='article' && <ArticleView id={selected?.id} user={user} />}
+      {view==='article' && <ArticleView id={selected?.id} user={user} setView={setView} setSelectedAuthor={setSelectedAuthor} />}
+      {view==='author' && <AuthorArticles author={selectedAuthor} onSelect={(a)=>{setSelected(a); setView('article');}} />}
       {view==='sitemap' && <Sitemap />}
     </div>
   );
@@ -51,7 +58,7 @@ function UsernameEntry({ onLogin }) {
   return (
     <div className="username-entry">
       <h1>CollabPress</h1>
-      <p className="tagline">a utopian publishing platform — no passwords, no email, just a name</p>
+      <p className="tagline">collaborative publishing — sign in with a username</p>
       <input value={name} onChange={e=>setName(e.target.value)} placeholder="type a username" onKeyDown={e=>{if(e.key==='Enter' && name.trim()) onLogin(name.trim());}} />
       <button onClick={()=>name.trim() && onLogin(name.trim())}>Enter</button>
     </div>
@@ -187,7 +194,7 @@ function Editor({ user, articleId, onPublish }) {
   );
 }
 
-function ArticleView({ id, user }) {
+function ArticleView({ id, user, setView, setSelectedAuthor }) {
   const [article, setArticle] = useState(null);
   const [revisions, setRevisions] = useState([]);
   useEffect(() => {
@@ -197,19 +204,19 @@ function ArticleView({ id, user }) {
   return (
     <div className="article-view">
       <h1>{article.title}</h1>
-      <div className="article-meta">by {article.author} · {new Date(article.created_at).toLocaleDateString()} {article.tags && <span className="tags">#{article.tags}</span>}</div>
+      <div className="article-meta">by <span className="author-link" onClick={()=>{ if(setSelectedAuthor){setSelectedAuthor(article.author); setView('author');} }}>{article.author}</span> · {new Date(article.created_at).toLocaleDateString()} {article.tags && <span className="tags">#{article.tags}</span>}</div>
       <div className="article-body" dangerouslySetInnerHTML={{__html: article.body}} />
       {article.parent_id && <div className="remix-note">Remixed from article #{article.parent_id}</div>}
       <button onClick={async()=>{ const rr=await fetch(API+'/api/articles',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:'Remix: '+article.title,author:user,body:article.body,parent_id:article.id})}); const d=await rr.json(); setSelected({id:d.id}); setView('editor'); }}>Remix this article</button>
       {user===article.author && <button onClick={async()=>{ await fetch(API+'/api/articles/'+article.id,{method:'DELETE'}); setView('catalogue'); }}>Delete article</button>}
       {user===article.author && <button onClick={()=>{ setSelected({id:article.id}); setView('editor'); }}>Edit article</button>}
       {revisions.length>0 && <details><summary>Revisions ({revisions.length})</summary>{revisions.map(r=><div key={r.id}>{new Date(r.saved_at).toLocaleString()} by {r.saved_by}</div>)}</details>}
-      <Comments articleId={id} user={user} />
+      <Comments articleId={id} user={user} setView={setView} setSelectedAuthor={setSelectedAuthor} />
     </div>
   );
 }
 
-function Comments({ articleId, user }) {
+function Comments({ articleId, user, setView, setSelectedAuthor }) {
   const [comments, setComments] = useState([]);
   const [text, setText] = useState('');
   const [sort, setSort] = useState('newest');
@@ -221,6 +228,7 @@ function Comments({ articleId, user }) {
   const add = async (parentId=null) => {
     await fetch(API+'/api/articles/'+articleId+'/comments', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({parent_id:parentId, username:user, text})});
     const r = await fetch(API+'/api/articles/'+articleId+'/comments'); setComments(await r.json());
+    const cr = await fetch(API+'/api/articles/'+articleId+'/chatrooms'); setChatrooms(await cr.json());
     setText('');
   };
   const sorted = [...comments].sort((a,b)=> sort==='newest' ? b.created_at-a.created_at : a.created_at-b.created_at);
@@ -238,7 +246,7 @@ function Comments({ articleId, user }) {
       <div className="comment" style={{marginLeft: Math.min(depth,3)*20}} key={c.id}>
         <div className="comment-head">
           <span className="avatar">{c.username[0].toUpperCase()}</span>
-          <span className="username">{c.username}</span>
+          <span className="username author-link" onClick={()=>{ if(setSelectedAuthor){setSelectedAuthor(c.username); setView('author');} }}>{c.username}</span>
           <span className="ts">{new Date(c.created_at).toLocaleString()}</span>
         </div>
         {editingId===c.id ? (
@@ -285,6 +293,7 @@ function ChatroomEmbed({ chatroomId, articleId, user }) {
   useEffect(() => {
     if (open) {
       fetch(API+'/api/chatrooms/'+chatroomId+'/messages').then(r=>r.json()).then(setMsgs);
+      fetch(API+'/api/chatrooms/'+chatroomId+'/read', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({username:user})});
       const s = io(API);
       s.emit('join', 'chat:'+chatroomId);
       s.on('chat:message', (m) => setMsgs(prev=>[...prev, m]));
@@ -310,6 +319,25 @@ function ChatroomEmbed({ chatroomId, articleId, user }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function AuthorArticles({ author, onSelect }) {
+  const [items, setItems] = useState([]);
+  useEffect(() => { fetch(API+'/api/articles?author='+encodeURIComponent(author)).then(r=>r.json()).then(setItems); }, [author]);
+  return (
+    <div className="catalogue">
+      <h2>Articles by {author}</h2>
+      <div className="grid">
+        {items.map(a=>(
+          <div className="card" key={a.id} onClick={()=>onSelect(a)}>
+            <h3>{a.title}</h3>
+            <div className="card-meta">by {a.author} · {new Date(a.created_at).toLocaleDateString()}</div>
+            <p>{a.snippet}</p>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

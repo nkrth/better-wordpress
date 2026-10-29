@@ -6,6 +6,7 @@ const db = require('./db');
 try { db.prepare('ALTER TABLE articles ADD COLUMN parent_id INTEGER').run(); } catch(e){}
 try { db.prepare('ALTER TABLE articles ADD COLUMN tags TEXT NOT NULL DEFAULT \'\'').run(); } catch(e){}
 db.exec('CREATE TABLE IF NOT EXISTS revisions (id INTEGER PRIMARY KEY AUTOINCREMENT, article_id INTEGER NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, saved_at INTEGER NOT NULL, saved_by TEXT NOT NULL);');
+db.exec('CREATE TABLE IF NOT EXISTS chat_reads (username TEXT NOT NULL, chatroom_id INTEGER NOT NULL, last_read_at INTEGER NOT NULL, PRIMARY KEY (username, chatroom_id));');
 require('./seed');
 
 const app = express();
@@ -41,7 +42,10 @@ app.post('/api/requests/:id/vote', (req,res)=>{
 });
 
 // articles
-app.get('/api/articles', (req,res)=> res.json(db.prepare('SELECT id,title,author,snippet,created_at,updated_at FROM articles ORDER BY created_at DESC').all()));
+app.get('/api/articles', (req,res)=>{
+  if(req.query.author) return res.json(db.prepare('SELECT id,title,author,snippet,created_at,updated_at FROM articles WHERE author=? ORDER BY created_at DESC').all(req.query.author));
+  res.json(db.prepare('SELECT id,title,author,snippet,created_at,updated_at FROM articles ORDER BY created_at DESC').all());
+});
 app.get('/api/articles/:id', (req,res)=>{
   const a = db.prepare('SELECT * FROM articles WHERE id=?').get(req.params.id);
   const collabs = db.prepare('SELECT * FROM article_collaborators WHERE article_id=?').all(req.params.id);
@@ -77,15 +81,24 @@ app.get('/api/articles/:id/comments', (req,res)=>{
 });
 app.post('/api/articles/:id/comments', (req,res)=>{
   const { parent_id, username, text } = req.body;
+  if(!username || !text) return res.status(400).json({error:'username and text required'});
   const info = db.prepare('INSERT INTO comments(article_id,parent_id,username,text,created_at) VALUES(?,?,?,?,?)').run(req.params.id, parent_id||null, username, text, Date.now());
-  const c = db.prepare('SELECT COUNT(*) c FROM comments WHERE parent_id=?').get(parent_id||null)?.c || 0;
-  // check escalation threshold for thread root
-  let rootId = parent_id;
-  // find root
+  // find thread root
+  let root = parent_id || info.lastInsertRowid;
   let cur = parent_id;
-  while(cur){ const row = db.prepare('SELECT parent_id FROM comments WHERE id=?').get(cur); cur = row? row.parent_id : null; if(cur===null && row) { /* root found */ } }
-  // simpler: root is top-level parent chain
-  res.json({id:info.lastInsertRowid});
+  while(cur){ const row = db.prepare('SELECT parent_id FROM comments WHERE id=?').get(cur); if(!row) break; if(row.parent_id===null){ root=cur; break;} cur=row.parent_id; }
+  if(!parent_id) root = info.lastInsertRowid;
+  // count thread
+  const all = db.prepare('SELECT id,parent_id FROM comments WHERE article_id=?').all(req.params.id);
+  function rootOf(id){ let c=id; let p; do { const r=all.find(x=>x.id===c); p=r?r.parent_id:null; if(p) c=p; } while(p); return c; }
+  const cnt = all.filter(c=>rootOf(c.id)===root).length;
+  const TH = parseInt(process.env.CHAT_THRESHOLD||'30');
+  let escalated=false;
+  if(cnt>=TH){
+    const existing = db.prepare('SELECT * FROM chatrooms WHERE comment_id=?').get(root);
+    if(!existing){ db.prepare('INSERT INTO chatrooms(comment_id,article_id,created_at) VALUES(?,?,?)').run(root, req.params.id, Date.now()); escalated=true; }
+  }
+  res.json({id:info.lastInsertRowid, threadCount:cnt, escalated});
 });
 app.put('/api/comments/:id', (req,res)=>{
   const { text } = req.body;
@@ -110,6 +123,19 @@ app.get('/api/chatrooms/by-comment/:commentId', (req,res)=>{
 });
 app.get('/api/articles/:id/chatrooms', (req,res)=> res.json(db.prepare('SELECT * FROM chatrooms WHERE article_id=?').all(req.params.id)));
 app.get('/api/chatrooms/:id/messages', (req,res)=> res.json(db.prepare('SELECT * FROM messages WHERE chatroom_id=? ORDER BY created_at ASC').all(req.params.id)));
+app.post('/api/chatrooms/:id/read', (req,res)=>{ const { username } = req.body; db.prepare('INSERT INTO chat_reads(username,chatroom_id,last_read_at) VALUES(?,?,?) ON CONFLICT(username,chatroom_id) DO UPDATE SET last_read_at=excluded.last_read_at').run(username, req.params.id, Date.now()); res.json({ok:true}); });
+app.get('/api/unread', (req,res)=>{
+  const { username } = req.query;
+  const rooms = db.prepare('SELECT * FROM chatrooms').all();
+  let total=0;
+  for(const rm of rooms){
+    const lr = db.prepare('SELECT last_read_at FROM chat_reads WHERE username=? AND chatroom_id=?').get(username, rm.id);
+    const since = lr? lr.last_read_at : 0;
+    const c = db.prepare('SELECT COUNT(*) c FROM messages WHERE chatroom_id=? AND created_at>? AND username<>?').get(rm.id, since, username).c;
+    total += c;
+  }
+  res.json({unread:total});
+});
 app.post('/api/chatrooms', (req,res)=>{
   const { comment_id, article_id } = req.body;
   const existing = db.prepare('SELECT * FROM chatrooms WHERE comment_id=?').get(comment_id);

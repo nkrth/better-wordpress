@@ -6,6 +6,7 @@ body { font-family: Georgia, serif; background: #faf7f2; color: #1a140c; margin:
 .brand { font-weight:bold; cursor:pointer; font-size:1.2rem; }
 .nav-links button { margin-left:8px; background:#fffaf0; border:1px solid #8a7a5e; padding:4px 10px; cursor:pointer; font-family:inherit; color:#1a140c; }
 .userbadge { margin-left:12px; font-style:italic; }
+.unread-badge { background:#c0392b; color:#fff; border-radius:10px; padding:2px 6px; font-size:0.75rem; margin-left:6px; }
 
 .username-entry { max-width:480px; margin:120px auto; text-align:center; }
 .username-entry input { padding:10px; width:60%; font-family:inherit; }
@@ -49,6 +50,7 @@ body { font-family: Georgia, serif; background: #faf7f2; color: #1a140c; margin:
 .comment-head { display:flex; gap:8px; align-items:center; margin-bottom:6px; }
 .comment .avatar { width:32px; height:32px; }
 .username { font-weight:bold; }
+.author-link { cursor:pointer; text-decoration:underline; color:#2b4a7c; }
 .ts { font-size:0.75rem; color:#6b5a3e; }
 .comment-text { font-size:1rem; }
 .comment.flat { margin-left:0; font-style:italic; color:#6b5a3e; }
