@@ -117,32 +117,51 @@ function Catalogue({ articles, onSelect }) {
 
 function Editor({ user, articleId, onPublish }) {
   const [title, setTitle] = useState('');
+  const [tags, setTags] = useState('');
   const [id, setId] = useState(articleId);
   const [collabs, setCollabs] = useState([]);
+  const [presence, setPresence] = useState([]);
   const editorRef = useRef(null);
   useEffect(() => {
     if (articleId) {
-      fetch(API+'/api/articles/'+articleId).then(r=>r.json()).then(d=>{setTitle(d.title); if(editorRef.current) editorRef.current.innerHTML=d.body; setCollabs(d.collaborators||[]);});
+      fetch(API+'/api/articles/'+articleId).then(r=>r.json()).then(d=>{setTitle(d.title); setTags(d.tags||''); if(editorRef.current) editorRef.current.innerHTML=d.body; setCollabs(d.collaborators||[]);});
     }
   }, [articleId]);
+  // socket realtime
+  useEffect(() => {
+    if (!id) return;
+    const s = io(API);
+    s.emit('join', 'article:'+id);
+    s.on('editor:update', (d) => { if (d.username!==user && editorRef.current) { editorRef.current.innerHTML = d.body; } });
+    s.on('presence', (d) => { setPresence(prev => Array.from(new Set([...prev.filter(x=>x!==d.username), d.username]))); });
+    const iv = setInterval(() => s.emit('presence', {article_id:id, username:user}), 5000);
+    return () => { clearInterval(iv); s.disconnect(); };
+  }, [id, user]);
   const save = () => {
     if(!id || !editorRef.current) return;
-    fetch(API+'/api/articles/'+id, {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({title, body: editorRef.current.innerHTML})});
+    const body = editorRef.current.innerHTML;
+    fetch(API+'/api/articles/'+id, {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({title, body, tags, username:user})});
   };
   useEffect(() => {
     if (!id) return;
     const t = setInterval(save, 2000);
     return () => clearInterval(t);
-  }, [id, title]);
+  }, [id, title, tags]);
+  const onInput = () => {
+    if(!id) return;
+    const s = io(API);
+    s.emit('editor:update', {article_id:id, body: editorRef.current.innerHTML, username:user});
+    s.disconnect();
+  };
   const publish = async () => {
     const body = editorRef.current ? editorRef.current.innerHTML : '';
     if (!id) {
-      const r = await fetch(API+'/api/articles', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({title, author:user, body})});
+      const r = await fetch(API+'/api/articles', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({title, author:user, body, tags})});
       const d = await r.json();
       setId(d.id);
       onPublish(d.id);
     } else {
-      await fetch(API+'/api/articles/'+id, {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({title, body})});
+      await fetch(API+'/api/articles/'+id, {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({title, body, tags, username:user})});
       onPublish(id);
     }
   };
@@ -152,34 +171,39 @@ function Editor({ user, articleId, onPublish }) {
     <div className="editor-wrap">
       <div className="editor-toolbar">
         <input className="title-input" value={title} onChange={e=>setTitle(e.target.value)} placeholder="Title" />
+        <input className="tags-input" value={tags} onChange={e=>setTags(e.target.value)} placeholder="tags" />
         <button onClick={()=>cmd('bold')}><b>B</b></button>
         <button onClick={()=>cmd('italic')}><i>I</i></button>
         <button onClick={()=>cmd('formatBlock','h2')}>H2</button>
         <button onClick={publish}>Publish</button>
         <div className="collab-avatars">
           {collabs.map(c=> <span key={c.username} className="avatar" title={c.username+' ('+c.role+')'}>{c.username[0].toUpperCase()}</span>)}
+          {presence.map(p=> <span key={p} className="avatar presence" title={p+' editing'}>{p[0].toUpperCase()}</span>)}
         </div>
       </div>
-      <div className="editor-body" contentEditable ref={editorRef} data-placeholder="Write here..."></div>
+      <div className="editor-body" contentEditable ref={editorRef} onInput={onInput} data-placeholder="Write here..."></div>
+      <div className="editing-indicator">{presence.length>0 ? presence.join(', ')+' is editing' : ''}</div>
     </div>
   );
 }
 
 function ArticleView({ id, user }) {
   const [article, setArticle] = useState(null);
+  const [revisions, setRevisions] = useState([]);
   useEffect(() => {
-    if (id) fetch(API+'/api/articles/'+id).then(r=>r.json()).then(setArticle);
+    if (id) { fetch(API+'/api/articles/'+id).then(r=>r.json()).then(setArticle); fetch(API+'/api/articles/'+id+'/revisions').then(r=>r.json()).then(setRevisions); }
   }, [id]);
   if (!article) return <div>Loading...</div>;
   return (
     <div className="article-view">
       <h1>{article.title}</h1>
-      <div className="article-meta">by {article.author} · {new Date(article.created_at).toLocaleDateString()}</div>
+      <div className="article-meta">by {article.author} · {new Date(article.created_at).toLocaleDateString()} {article.tags && <span className="tags">#{article.tags}</span>}</div>
       <div className="article-body" dangerouslySetInnerHTML={{__html: article.body}} />
       {article.parent_id && <div className="remix-note">Remixed from article #{article.parent_id}</div>}
       <button onClick={async()=>{ const rr=await fetch(API+'/api/articles',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:'Remix: '+article.title,author:user,body:article.body,parent_id:article.id})}); const d=await rr.json(); setSelected({id:d.id}); setView('editor'); }}>Remix this article</button>
       {user===article.author && <button onClick={async()=>{ await fetch(API+'/api/articles/'+article.id,{method:'DELETE'}); setView('catalogue'); }}>Delete article</button>}
       {user===article.author && <button onClick={()=>{ setSelected({id:article.id}); setView('editor'); }}>Edit article</button>}
+      {revisions.length>0 && <details><summary>Revisions ({revisions.length})</summary>{revisions.map(r=><div key={r.id}>{new Date(r.saved_at).toLocaleString()} by {r.saved_by}</div>)}</details>}
       <Comments articleId={id} user={user} />
     </div>
   );

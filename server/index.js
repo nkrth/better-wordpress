@@ -4,6 +4,8 @@ const http = require('http');
 const { Server } = require('socket.io');
 const db = require('./db');
 try { db.prepare('ALTER TABLE articles ADD COLUMN parent_id INTEGER').run(); } catch(e){}
+try { db.prepare('ALTER TABLE articles ADD COLUMN tags TEXT NOT NULL DEFAULT \'\'').run(); } catch(e){}
+db.exec('CREATE TABLE IF NOT EXISTS revisions (id INTEGER PRIMARY KEY AUTOINCREMENT, article_id INTEGER NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, saved_at INTEGER NOT NULL, saved_by TEXT NOT NULL);');
 require('./seed');
 
 const app = express();
@@ -54,11 +56,14 @@ app.post('/api/articles', (req,res)=>{
 });
 app.delete('/api/articles/:id', (req,res)=>{ db.prepare('DELETE FROM articles WHERE id=?').run(req.params.id); db.prepare('DELETE FROM article_collaborators WHERE article_id=?').run(req.params.id); db.prepare('DELETE FROM comments WHERE article_id=?').run(req.params.id); res.json({ok:true}); });
 app.put('/api/articles/:id', (req,res)=>{
-  const { body, title } = req.body;
+  const { body, title, tags, username } = req.body;
   const snippet = (body||'').slice(0,120);
-  db.prepare('UPDATE articles SET body=?, snippet=?, title=COALESCE(?,title), updated_at=? WHERE id=?').run(body, snippet, title||null, Date.now(), req.params.id);
+  const cur = db.prepare('SELECT * FROM articles WHERE id=?').get(req.params.id);
+  db.prepare('INSERT INTO revisions(article_id,title,body,saved_at,saved_by) VALUES(?,?,?,?,?)').run(req.params.id, cur.title, cur.body, Date.now(), username||'unknown');
+  db.prepare('UPDATE articles SET body=?, snippet=?, title=COALESCE(?,title), tags=COALESCE(?,tags), updated_at=? WHERE id=?').run(body, snippet, title||null, tags||null, Date.now(), req.params.id);
   res.json({ok:true});
 });
+app.get('/api/articles/:id/revisions', (req,res)=> res.json(db.prepare('SELECT * FROM revisions WHERE article_id=? ORDER BY saved_at DESC LIMIT 20').all(req.params.id)));
 app.post('/api/articles/:id/collaborators', (req,res)=>{
   const { username, role } = req.body;
   try { db.prepare('INSERT INTO article_collaborators(article_id,username,role) VALUES(?,?,?)').run(req.params.id, username, role); } catch(e){}
