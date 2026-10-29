@@ -278,7 +278,7 @@ function Comments({ articleId, user, setView, setSelectedAuthor }) {
         </select>
       </div>
       <div className="comment-input">
-        <textarea value={text} onChange={e=>setText(e.target.value)} placeholder="Add a comment" />
+        <div className="comment-edit" contentEditable onInput={e=>setText(e.currentTarget.innerHTML)} data-placeholder="Add a comment"></div>
         <button onClick={()=>add(null)}>Post</button>
       </div>
       {roots.map(c=>renderThread(c))}
