@@ -36,11 +36,11 @@ export default function App() {
       <nav className="nav">
         <span className="brand" onClick={()=>setView('landing')}>CollabPress</span>
         <div className="nav-links">
-          <button onClick={()=>setView('landing')}>Home</button>
-          <button onClick={()=>setView('catalogue')}>Catalogue</button>
-          <button onClick={()=>setView('sitemap')}>Sitemap</button>
-          <button onClick={()=>{setSelected(null); setView('editor');}}>New Article</button>
-          <span className="userbadge">{user} {unread>0 && <span className="unread-badge">{unread}</span>}</span>
+          <button onClick={()=>setView('landing')}>🏠 Home</button>
+          <button onClick={()=>setView('catalogue')}>📚 Catalogue</button>
+          <button onClick={()=>setView('sitemap')}>🗺️ Sitemap</button>
+          <button onClick={()=>{setSelected(null); setView('editor');}}>✍️ New Article</button>
+          <span className="userbadge">👤 {user} {unread>0 && <span className="unread-badge">{unread}</span>}</span>
         </div>
       </nav>
       {view==='landing' && <Landing requests={requests} setRequests={setRequests} user={user} setView={setView} setSelected={setSelected} articles={articles} />}
@@ -94,9 +94,9 @@ function Landing({ requests, setRequests, user, setView, setSelected, articles }
             <div className="req-meta">
               <span>by {r.requester}</span>
               <span>{new Date(r.created_at).toLocaleDateString()}</span>
-              <button className="upvote" onClick={()=>vote(r.id)}>▲ {r.upvotes}</button>
+              <button className="upvote" onClick={()=>vote(r.id)}>👍 {r.upvotes}</button>
               {r.requester===user && <button onClick={async()=>{ await fetch(API+'/api/requests/'+r.id,{method:'DELETE'}); setRequests(requests.filter(x=>x.id!==r.id)); }}>Delete</button>}
-              <button onClick={async ()=>{ const rr = await fetch(API+'/api/articles',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:r.text,author:user,body:'',request_id:r.id})}); const d=await rr.json(); setSelected({id:d.id}); setView('editor'); }}>Write this</button>
+              <button onClick={async ()=>{ const rr = await fetch(API+'/api/articles',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:r.text,author:user,body:'',request_id:r.id})}); const d=await rr.json(); setSelected({id:d.id}); setView('editor'); }}>✍️ Write this</button>
             </div>
           </div>
         ))}
@@ -128,7 +128,14 @@ function Editor({ user, articleId, onPublish }) {
   const [id, setId] = useState(articleId);
   const [collabs, setCollabs] = useState([]);
   const [presence, setPresence] = useState([]);
+  const [invite, setInvite] = useState('');
   const editorRef = useRef(null);
+  const addCollab = async () => {
+    if(!id || !invite.trim()) return;
+    await fetch(API+'/api/articles/'+id+'/collaborators', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({username:invite.trim(), role:'editor'})});
+    const r = await fetch(API+'/api/articles/'+id); const d = await r.json(); setCollabs(d.collaborators||[]);
+    setInvite('');
+  };
   useEffect(() => {
     if (articleId) {
       fetch(API+'/api/articles/'+articleId).then(r=>r.json()).then(d=>{setTitle(d.title); setTags(d.tags||''); if(editorRef.current) editorRef.current.innerHTML=d.body; setCollabs(d.collaborators||[]);});
@@ -179,6 +186,8 @@ function Editor({ user, articleId, onPublish }) {
       <div className="editor-toolbar">
         <input className="title-input" value={title} onChange={e=>setTitle(e.target.value)} placeholder="Title" />
         <input className="tags-input" value={tags} onChange={e=>setTags(e.target.value)} placeholder="tags" />
+        <input className="tags-input" value={invite} onChange={e=>setInvite(e.target.value)} placeholder="invite editor" />
+        <button onClick={addCollab}>➕</button>
         <button onClick={()=>cmd('bold')}><b>B</b></button>
         <button onClick={()=>cmd('italic')}><i>I</i></button>
         <button onClick={()=>cmd('formatBlock','h2')}>H2</button>
@@ -197,8 +206,13 @@ function Editor({ user, articleId, onPublish }) {
 function ArticleView({ id, user, setView, setSelectedAuthor }) {
   const [article, setArticle] = useState(null);
   const [revisions, setRevisions] = useState([]);
+  const [chatrooms, setChatrooms] = useState([]);
   useEffect(() => {
-    if (id) { fetch(API+'/api/articles/'+id).then(r=>r.json()).then(setArticle); fetch(API+'/api/articles/'+id+'/revisions').then(r=>r.json()).then(setRevisions); }
+    if (id) {
+      fetch(API+'/api/articles/'+id).then(r=>r.json()).then(setArticle);
+      fetch(API+'/api/articles/'+id+'/revisions').then(r=>r.json()).then(setRevisions);
+      fetch(API+'/api/articles/'+id+'/chatrooms').then(r=>r.json()).then(setChatrooms);
+    }
   }, [id]);
   if (!article) return <div>Loading...</div>;
   return (
@@ -210,7 +224,13 @@ function ArticleView({ id, user, setView, setSelectedAuthor }) {
       <button onClick={async()=>{ const rr=await fetch(API+'/api/articles',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:'Remix: '+article.title,author:user,body:article.body,parent_id:article.id})}); const d=await rr.json(); setSelected({id:d.id}); setView('editor'); }}>Remix this article</button>
       {user===article.author && <button onClick={async()=>{ await fetch(API+'/api/articles/'+article.id,{method:'DELETE'}); setView('catalogue'); }}>Delete article</button>}
       {user===article.author && <button onClick={()=>{ setSelected({id:article.id}); setView('editor'); }}>Edit article</button>}
-      {revisions.length>0 && <details><summary>Revisions ({revisions.length})</summary>{revisions.map(r=><div key={r.id}>{new Date(r.saved_at).toLocaleString()} by {r.saved_by}</div>)}</details>}
+      {revisions.length>0 && <details><summary>📝 Revisions ({revisions.length})</summary>{revisions.map(r=><div key={r.id}>{new Date(r.saved_at).toLocaleString()} by {r.saved_by}</div>)}</details>}
+      {chatrooms.length>0 && (
+        <div className="chatrooms-panel">
+          <h3>💬 Live Discussions</h3>
+          {chatrooms.map(cr=> <ChatroomEmbed key={cr.id} chatroomId={cr.id} articleId={id} user={user} originCommentId={cr.comment_id} />)}
+        </div>
+      )}
       <Comments articleId={id} user={user} setView={setView} setSelectedAuthor={setSelectedAuthor} />
     </div>
   );
@@ -286,7 +306,7 @@ function Comments({ articleId, user, setView, setSelectedAuthor }) {
   );
 }
 
-function ChatroomEmbed({ chatroomId, articleId, user }) {
+function ChatroomEmbed({ chatroomId, articleId, user, originCommentId }) {
   const [open, setOpen] = useState(false);
   const [msgs, setMsgs] = useState([]);
   const [text, setText] = useState('');
@@ -308,7 +328,7 @@ function ChatroomEmbed({ chatroomId, articleId, user }) {
   };
   return (
     <div className="chatroom-embed">
-      <p>This discussion moved to live chat.</p>
+      <p>💬 This discussion moved to live chat. {originCommentId && <span className="origin-link">(originating comment #{originCommentId})</span>}</p>
       <button onClick={()=>setOpen(!open)}>{open?'Hide':'Join chat'}</button>
       {open && (
         <div className="chat-panel">
