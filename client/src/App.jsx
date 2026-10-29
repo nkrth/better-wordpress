@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import './styles.css';
 
@@ -32,6 +32,7 @@ export default function App() {
         <div className="nav-links">
           <button onClick={()=>setView('landing')}>Home</button>
           <button onClick={()=>setView('catalogue')}>Catalogue</button>
+          <button onClick={()=>setView('sitemap')}>Sitemap</button>
           <button onClick={()=>{setSelected(null); setView('editor');}}>New Article</button>
           <span className="userbadge">{user}</span>
         </div>
@@ -40,6 +41,7 @@ export default function App() {
       {view==='catalogue' && <Catalogue articles={articles} onSelect={(a)=>{setSelected(a); setView('article');}} />}
       {view==='editor' && <Editor user={user} articleId={selected?.id} onPublish={(id)=>{setSelected({id}); setView('article');}} />}
       {view==='article' && <ArticleView id={selected?.id} user={user} />}
+      {view==='sitemap' && <Sitemap />}
     </div>
   );
 }
@@ -86,6 +88,8 @@ function Landing({ requests, setRequests, user, setView, setSelected, articles }
               <span>by {r.requester}</span>
               <span>{new Date(r.created_at).toLocaleDateString()}</span>
               <button className="upvote" onClick={()=>vote(r.id)}>▲ {r.upvotes}</button>
+              {r.requester===user && <button onClick={async()=>{ await fetch(API+'/api/requests/'+r.id,{method:'DELETE'}); setRequests(requests.filter(x=>x.id!==r.id)); }}>Delete</button>}
+              <button onClick={async ()=>{ const rr = await fetch(API+'/api/articles',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:r.text,author:user,body:'',request_id:r.id})}); const d=await rr.json(); setSelected({id:d.id}); setView('editor'); }}>Write this</button>
             </div>
           </div>
         ))}
@@ -113,24 +117,25 @@ function Catalogue({ articles, onSelect }) {
 
 function Editor({ user, articleId, onPublish }) {
   const [title, setTitle] = useState('');
-  const [body, setBody] = useState('');
   const [id, setId] = useState(articleId);
   const [collabs, setCollabs] = useState([]);
+  const editorRef = useRef(null);
   useEffect(() => {
     if (articleId) {
-      fetch(API+'/api/articles/'+articleId).then(r=>r.json()).then(d=>{setTitle(d.title); setBody(d.body); setCollabs(d.collaborators||[]);});
+      fetch(API+'/api/articles/'+articleId).then(r=>r.json()).then(d=>{setTitle(d.title); if(editorRef.current) editorRef.current.innerHTML=d.body; setCollabs(d.collaborators||[]);});
     }
   }, [articleId]);
-  // autosave
+  const save = () => {
+    if(!id || !editorRef.current) return;
+    fetch(API+'/api/articles/'+id, {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({title, body: editorRef.current.innerHTML})});
+  };
   useEffect(() => {
     if (!id) return;
-    const t = setTimeout(() => {
-      fetch(API+'/api/articles/'+id, {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({title, body})});
-    }, 800);
-    return () => clearTimeout(t);
-  }, [title, body, id]);
-
+    const t = setInterval(save, 2000);
+    return () => clearInterval(t);
+  }, [id, title]);
   const publish = async () => {
+    const body = editorRef.current ? editorRef.current.innerHTML : '';
     if (!id) {
       const r = await fetch(API+'/api/articles', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({title, author:user, body})});
       const d = await r.json();
@@ -141,17 +146,21 @@ function Editor({ user, articleId, onPublish }) {
       onPublish(id);
     }
   };
+  const cmd = (c) => { document.execCommand(c, false, null); editorRef.current && editorRef.current.focus(); };
 
   return (
     <div className="editor-wrap">
       <div className="editor-toolbar">
         <input className="title-input" value={title} onChange={e=>setTitle(e.target.value)} placeholder="Title" />
+        <button onClick={()=>cmd('bold')}><b>B</b></button>
+        <button onClick={()=>cmd('italic')}><i>I</i></button>
+        <button onClick={()=>cmd('formatBlock','h2')}>H2</button>
         <button onClick={publish}>Publish</button>
         <div className="collab-avatars">
           {collabs.map(c=> <span key={c.username} className="avatar" title={c.username+' ('+c.role+')'}>{c.username[0].toUpperCase()}</span>)}
         </div>
       </div>
-      <textarea className="editor-body" value={body} onChange={e=>setBody(e.target.value)} placeholder="Write here..." />
+      <div className="editor-body" contentEditable ref={editorRef} data-placeholder="Write here..."></div>
     </div>
   );
 }
@@ -166,7 +175,11 @@ function ArticleView({ id, user }) {
     <div className="article-view">
       <h1>{article.title}</h1>
       <div className="article-meta">by {article.author} · {new Date(article.created_at).toLocaleDateString()}</div>
-      <div className="article-body">{article.body.split('\n').map((p,i)=><p key={i}>{p}</p>)}</div>
+      <div className="article-body" dangerouslySetInnerHTML={{__html: article.body}} />
+      {article.parent_id && <div className="remix-note">Remixed from article #{article.parent_id}</div>}
+      <button onClick={async()=>{ const rr=await fetch(API+'/api/articles',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:'Remix: '+article.title,author:user,body:article.body,parent_id:article.id})}); const d=await rr.json(); setSelected({id:d.id}); setView('editor'); }}>Remix this article</button>
+      {user===article.author && <button onClick={async()=>{ await fetch(API+'/api/articles/'+article.id,{method:'DELETE'}); setView('catalogue'); }}>Delete article</button>}
+      {user===article.author && <button onClick={()=>{ setSelected({id:article.id}); setView('editor'); }}>Edit article</button>}
       <Comments articleId={id} user={user} />
     </div>
   );
@@ -176,6 +189,8 @@ function Comments({ articleId, user }) {
   const [comments, setComments] = useState([]);
   const [text, setText] = useState('');
   const [sort, setSort] = useState('newest');
+  const [editingId, setEditingId] = useState(null);
+  const [editText, setEditText] = useState('');
   useEffect(() => {
     fetch(API+'/api/articles/'+articleId+'/comments').then(r=>r.json()).then(setComments);
   }, [articleId]);
@@ -202,7 +217,17 @@ function Comments({ articleId, user }) {
           <span className="username">{c.username}</span>
           <span className="ts">{new Date(c.created_at).toLocaleString()}</span>
         </div>
-        <div className="comment-text">{c.text}</div>
+        {editingId===c.id ? (
+          <div>
+            <textarea value={editText} onChange={e=>setEditText(e.target.value)} />
+            <button onClick={async()=>{ await fetch(API+'/api/comments/'+c.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:editText})}); const r=await fetch(API+'/api/articles/'+articleId+'/comments'); setComments(await r.json()); setEditingId(null); }}>Save</button>
+            <button onClick={()=>setEditingId(null)}>Cancel</button>
+          </div>
+        ) : (
+          <div className="comment-text">{c.text}</div>
+        )}
+        {c.username===user && <button className="del" onClick={async()=>{ await fetch(API+'/api/comments/'+c.id,{method:'DELETE'}); const r=await fetch(API+'/api/articles/'+articleId+'/comments'); setComments(await r.json()); }}>Delete</button>}
+        {c.username===user && <button onClick={()=>{setEditingId(c.id); setEditText(c.text);}}>Edit</button>}
         {isEscalated && <ChatroomEmbed chatroomId={isEscalated.id} articleId={articleId} user={user} />}
         {depth < 3 && children(c.id).map(ch=>renderThread(ch, depth+1))}
         {depth >= 3 && children(c.id).map(ch=>(
@@ -261,6 +286,23 @@ function ChatroomEmbed({ chatroomId, articleId, user }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function Sitemap() {
+  const steps = ['Landing: type request','Claim request -> Editor','Write & autosave','Publish -> Catalogue','Read article','Comment thread','Escalate to chatroom'];
+  return (
+    <div className="sitemap">
+      <h2>Site Flow</h2>
+      <div className="flow">
+        {steps.map((s,i)=>(
+          <div className="flow-step" key={i} style={{animationDelay: (i*0.2)+'s'}}>
+            {s}
+            {i<steps.length-1 && <span className="arrow">→</span>}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

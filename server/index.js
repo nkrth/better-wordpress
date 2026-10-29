@@ -3,6 +3,7 @@ const cors = require('cors');
 const http = require('http');
 const { Server } = require('socket.io');
 const db = require('./db');
+try { db.prepare('ALTER TABLE articles ADD COLUMN parent_id INTEGER').run(); } catch(e){}
 require('./seed');
 
 const app = express();
@@ -27,6 +28,7 @@ app.post('/api/requests', (req,res)=>{
   const info = db.prepare('INSERT INTO requests(text,requester,created_at,upvotes) VALUES(?,?,?,0)').run(text, requester, Date.now());
   res.json({id:info.lastInsertRowid, text, requester, created_at:Date.now(), upvotes:0});
 });
+app.delete('/api/requests/:id', (req,res)=>{ db.prepare('DELETE FROM requests WHERE id=?').run(req.params.id); db.prepare('DELETE FROM request_votes WHERE request_id=?').run(req.params.id); res.json({ok:true}); });
 app.post('/api/requests/:id/vote', (req,res)=>{
   const { username } = req.body;
   const id = req.params.id;
@@ -44,12 +46,13 @@ app.get('/api/articles/:id', (req,res)=>{
   res.json({...a, collaborators: collabs});
 });
 app.post('/api/articles', (req,res)=>{
-  const { title, author, body, request_id } = req.body;
+  const { title, author, body, request_id, parent_id } = req.body;
   const snippet = (body||'').slice(0,120);
-  const info = db.prepare('INSERT INTO articles(title,author,body,snippet,created_at,updated_at,request_id) VALUES(?,?,?,?,?,?,?)').run(title, author, body||'', snippet, Date.now(), Date.now(), request_id||null);
+  const info = db.prepare('INSERT INTO articles(title,author,body,snippet,created_at,updated_at,request_id,parent_id) VALUES(?,?,?,?,?,?,?,?)').run(title, author, body||'', snippet, Date.now(), Date.now(), request_id||null, parent_id||null);
   db.prepare('INSERT INTO article_collaborators(article_id,username,role) VALUES(?,?,?)').run(info.lastInsertRowid, author, 'writer');
   res.json({id:info.lastInsertRowid});
 });
+app.delete('/api/articles/:id', (req,res)=>{ db.prepare('DELETE FROM articles WHERE id=?').run(req.params.id); db.prepare('DELETE FROM article_collaborators WHERE article_id=?').run(req.params.id); db.prepare('DELETE FROM comments WHERE article_id=?').run(req.params.id); res.json({ok:true}); });
 app.put('/api/articles/:id', (req,res)=>{
   const { body, title } = req.body;
   const snippet = (body||'').slice(0,120);
@@ -87,6 +90,7 @@ app.put('/api/comments/:id', (req,res)=>{
   res.json({ok:true});
 });
 app.get('/api/comments/:id/history', (req,res)=> res.json(db.prepare('SELECT * FROM comment_edits WHERE comment_id=? ORDER BY edited_at DESC').all(req.params.id)));
+app.delete('/api/comments/:id', (req,res)=>{ db.prepare('DELETE FROM comments WHERE id=?').run(req.params.id); db.prepare('DELETE FROM reactions WHERE comment_id=?').run(req.params.id); res.json({ok:true}); });
 app.post('/api/comments/:id/reactions', (req,res)=>{
   const { username, emoji } = req.body;
   try { db.prepare('INSERT INTO reactions(comment_id,username,emoji) VALUES(?,?,?)').run(req.params.id, username, emoji); } catch(e){ db.prepare('DELETE FROM reactions WHERE comment_id=? AND username=? AND emoji=?').run(req.params.id,username,emoji); }
