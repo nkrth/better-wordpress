@@ -57,7 +57,7 @@ export default function App() {
       {view==='editor' && <Editor user={user} articleId={selected?.id} onPublish={(id)=>{setSelected({id}); setView('article');}} />}
       {view==='article' && <ArticleView id={selected?.id} user={user} setView={setView} setSelectedAuthor={setSelectedAuthor} />}
       {view==='author' && <AuthorArticles author={selectedAuthor} onSelect={(a)=>{setSelected(a); setView('article');}} />}
-      {view==='sitemap' && <Sitemap />}
+      {view==='sitemap' && <Sitemap setView={setView} />}
       {view==='logs' && <SystemLog />}
       {view==='chatrooms' && <ChatroomsView user={user} />}
       {view==='notifications' && <NotificationsView user={user} />}
@@ -450,7 +450,12 @@ function NotificationsView({ user }) {
   );
 }
 
-function Sitemap() {
+function Sitemap({ setView }) {
+  // no props passed; use window dispatch
+  const navigate = (name) => {
+    const map = { Landing:'landing', Request:'landing', Editor:'editor', Catalogue:'catalogue', Article:'catalogue', Comments:'catalogue', Chatroom:'chatrooms', Revisions:'catalogue', Profile:'catalogue' };
+    const v = map[name]; if(v && setView) setView(v);
+  };
   const nodes = ['Landing','Request','Editor','Catalogue','Article','Comments','Chatroom','Revisions','Profile'];
   const edges = [[0,1],[1,2],[2,3],[3,4],[4,5],[5,6],[2,7],[4,8]];
   const R = 180; const cx=220, cy=220;
@@ -459,9 +464,9 @@ function Sitemap() {
     <div className="sitemap">
       <h2>🗺️ Site Graph</h2>
       <svg width="440" height="440" className="graph">
-        {edges.map(([a,b],i)=> <line key={i} x1={pos[a].x} y1={pos[a].y} x2={pos[b].x} y2={pos[b].y} stroke="#d6d6d6" strokeWidth="1.5" />)}
+        {edges.map(([a,b],i)=> <line key={i} className="graph-edge" x1={pos[a].x} y1={pos[a].y} x2={pos[b].x} y2={pos[b].y} stroke="#d6d6d6" strokeWidth="1.5" />)}
         {nodes.map((n,i)=> (
-          <g key={i}>
+          <g key={i} className="graph-node" onClick={()=>navigate(n)} style={{cursor:'pointer'}}>
             <circle cx={pos[i].x} cy={pos[i].y} r="26" fill="#1a1a1a" />
             <text x={pos[i].x} y={pos[i].y+4} textAnchor="middle" fill="#ffffff" fontSize="9">{n}</text>
           </g>

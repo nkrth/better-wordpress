@@ -81,3 +81,7 @@ body { font-family: Georgia, serif; background: #ffffff; color: #1a1a1a; margin:
 .log-wrap { padding:16px; }
 .xterm-host { height:500px; background:#000; }
 .origin-link { color:#535353; font-size:0.85rem; }
+.graph-node { animation: pulse 2s infinite; cursor:pointer; }
+.graph-edge { stroke-dasharray: 4; animation: dash 2s linear infinite; }
+@keyframes pulse { 0%,100% { transform: scale(1);} 50% { transform: scale(1.08);} }
+@keyframes dash { to { stroke-dashoffset: -8; } }
