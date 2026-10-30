@@ -18,8 +18,9 @@ app.post('/api/users', (req,res)=>{
   const { username } = req.body;
   if(!username) return res.status(400).json({error:'username required'});
   const existing = db.prepare('SELECT * FROM users WHERE username=?').get(username);
-  if(existing) return res.json(existing);
+  if(existing) { logEvent('user login '+username); return res.json(existing); }
   const info = db.prepare('INSERT INTO users(username,created_at) VALUES(?,?)').run(username, Date.now());
+  logEvent('user created '+username);
   res.json({id:info.lastInsertRowid, username, created_at: Date.now()});
 });
 app.get('/api/users', (req,res)=> res.json(db.prepare('SELECT * FROM users').all()));
@@ -29,6 +30,7 @@ app.get('/api/requests', (req,res)=> res.json(db.prepare('SELECT * FROM requests
 app.post('/api/requests', (req,res)=>{
   const { text, requester } = req.body;
   const info = db.prepare('INSERT INTO requests(text,requester,created_at,upvotes) VALUES(?,?,?,0)').run(text, requester, Date.now());
+  logEvent('request created by '+requester+': '+text);
   res.json({id:info.lastInsertRowid, text, requester, created_at:Date.now(), upvotes:0});
 });
 app.delete('/api/requests/:id', (req,res)=>{ db.prepare('DELETE FROM requests WHERE id=?').run(req.params.id); db.prepare('DELETE FROM request_votes WHERE request_id=?').run(req.params.id); res.json({ok:true}); });
@@ -56,6 +58,7 @@ app.post('/api/articles', (req,res)=>{
   const snippet = (body||'').slice(0,120);
   const info = db.prepare('INSERT INTO articles(title,author,body,snippet,created_at,updated_at,request_id,parent_id) VALUES(?,?,?,?,?,?,?,?)').run(title, author, body||'', snippet, Date.now(), Date.now(), request_id||null, parent_id||null);
   db.prepare('INSERT INTO article_collaborators(article_id,username,role) VALUES(?,?,?)').run(info.lastInsertRowid, author, 'writer');
+  logEvent('article created by '+author+': '+title);
   res.json({id:info.lastInsertRowid});
 });
 app.delete('/api/articles/:id', (req,res)=>{ db.prepare('DELETE FROM articles WHERE id=?').run(req.params.id); db.prepare('DELETE FROM article_collaborators WHERE article_id=?').run(req.params.id); db.prepare('DELETE FROM comments WHERE article_id=?').run(req.params.id); res.json({ok:true}); });
@@ -101,6 +104,7 @@ app.post('/api/articles/:id/comments', (req,res)=>{
     const existing = db.prepare('SELECT * FROM chatrooms WHERE comment_id=?').get(root);
     if(!existing){ db.prepare('INSERT INTO chatrooms(comment_id,article_id,created_at) VALUES(?,?,?)').run(root, req.params.id, Date.now()); escalated=true; }
   }
+  logEvent('comment by '+username+' on article '+req.params.id+(escalated?' [ESCALATED]':''));
   res.json({id:info.lastInsertRowid, threadCount:cnt, escalated});
 });
 app.put('/api/comments/:id', (req,res)=>{
@@ -127,6 +131,7 @@ app.get('/api/chatrooms/by-comment/:commentId', (req,res)=>{
 app.get('/api/articles/:id/chatrooms', (req,res)=> res.json(db.prepare('SELECT * FROM chatrooms WHERE article_id=?').all(req.params.id)));
 app.get('/api/chatrooms/:id/messages', (req,res)=> res.json(db.prepare('SELECT * FROM messages WHERE chatroom_id=? ORDER BY created_at ASC').all(req.params.id)));
 app.post('/api/chatrooms/:id/read', (req,res)=>{ const { username } = req.body; db.prepare('INSERT INTO chat_reads(username,chatroom_id,last_read_at) VALUES(?,?,?) ON CONFLICT(username,chatroom_id) DO UPDATE SET last_read_at=excluded.last_read_at').run(username, req.params.id, Date.now()); res.json({ok:true}); });
+app.get('/api/logs', (req,res)=> res.json(logBuffer));
 app.get('/api/unread', (req,res)=>{
   const { username } = req.query;
   const rooms = db.prepare('SELECT * FROM chatrooms').all();
@@ -149,10 +154,14 @@ app.post('/api/chatrooms', (req,res)=>{
 
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
+const logBuffer = [];
+function logEvent(msg){ const line = `[${new Date().toISOString()}] ${msg}`; logBuffer.push(line); if(logBuffer.length>500) logBuffer.shift(); io.emit('system:log', line); }
 io.on('connection', (socket)=>{
   socket.on('join', (room)=> socket.join(room));
+  logEvent('client connected '+socket.id);
   socket.on('chat:message', (data)=>{
     const info = db.prepare('INSERT INTO messages(chatroom_id,username,text,created_at) VALUES(?,?,?,?)').run(data.chatroom_id, data.username, data.text, Date.now());
+    logEvent('chat message in room '+data.chatroom_id+' by '+data.username);
     io.to('chat:'+data.chatroom_id).emit('chat:message', {id:info.lastInsertRowid, ...data, created_at:Date.now()});
   });
   socket.on('editor:update', (data)=> socket.to('article:'+data.article_id).emit('editor:update', data));

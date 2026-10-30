@@ -1,4 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
+import { Terminal } from '@xterm/xterm';
+import { FitAddon } from '@xterm/addon-fit';
+import '@xterm/xterm/css/xterm.css';
 import { io } from 'socket.io-client';
 import './styles.css';
 
@@ -39,6 +42,7 @@ export default function App() {
           <button onClick={()=>setView('landing')}>🏠 Home</button>
           <button onClick={()=>setView('catalogue')}>📚 Catalogue</button>
           <button onClick={()=>setView('sitemap')}>🗺️ Sitemap</button>
+          <button onClick={()=>setView('logs')}>🧾 System Log</button>
           <button onClick={()=>{setSelected(null); setView('editor');}}>✍️ New Article</button>
           <span className="userbadge">👤 {user} {unread>0 && <span className="unread-badge">{unread}</span>}</span>
         </div>
@@ -49,6 +53,7 @@ export default function App() {
       {view==='article' && <ArticleView id={selected?.id} user={user} setView={setView} setSelectedAuthor={setSelectedAuthor} />}
       {view==='author' && <AuthorArticles author={selectedAuthor} onSelect={(a)=>{setSelected(a); setView('article');}} />}
       {view==='sitemap' && <Sitemap />}
+      {view==='logs' && <SystemLog />}
     </div>
   );
 }
@@ -244,16 +249,31 @@ function Comments({ articleId, user, setView, setSelectedAuthor }) {
   const [editText, setEditText] = useState('');
   const [replyTo, setReplyTo] = useState(null);
   const [replyText, setReplyText] = useState('');
+  const [reactions, setReactions] = useState({});
+  const loadReactions = async (list) => {
+    const map = {};
+    await Promise.all(list.map(async c => {
+      const r = await fetch(API+'/api/comments/'+c.id+'/reactions');
+      map[c.id] = await r.json();
+    }));
+    setReactions(map);
+  };
   useEffect(() => {
-    fetch(API+'/api/articles/'+articleId+'/comments').then(r=>r.json()).then(setComments);
+    fetch(API+'/api/articles/'+articleId+'/comments').then(r=>r.json()).then(async (list)=>{ setComments(list); await loadReactions(list); });
   }, [articleId]);
   const add = async (parentId=null) => {
     await fetch(API+'/api/articles/'+articleId+'/comments', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({parent_id:parentId, username:user, text})});
-    const r = await fetch(API+'/api/articles/'+articleId+'/comments'); setComments(await r.json());
+    const r = await fetch(API+'/api/articles/'+articleId+'/comments'); const list = await r.json(); setComments(list); await loadReactions(list);
     const cr = await fetch(API+'/api/articles/'+articleId+'/chatrooms'); setChatrooms(await cr.json());
     setText('');
   };
-  const sorted = [...comments].sort((a,b)=> sort==='newest' ? b.created_at-a.created_at : a.created_at-b.created_at);
+  const reactionCount = (id) => (reactions[id]||[]).length;
+  const replyCount = (id) => comments.filter(c=>c.parent_id===id).length;
+  const sorted = [...comments].sort((a,b)=>{
+    if(sort==='newest') return b.created_at-a.created_at;
+    if(sort==='oldest') return a.created_at-b.created_at;
+    return (reactionCount(b.id)+replyCount(b.id)) - (reactionCount(a.id)+replyCount(a.id));
+  });
   const roots = sorted.filter(c=>!c.parent_id);
   const children = (pid) => comments.filter(c=>c.parent_id===pid);
 
@@ -280,6 +300,13 @@ function Comments({ articleId, user, setView, setSelectedAuthor }) {
         ) : (
           <div className="comment-text">{c.text}</div>
         )}
+        <div className="reactions">
+          {['👍','❤️','😂','😮'].map(em=>(
+            <button key={em} onClick={async()=>{ await fetch(API+'/api/comments/'+c.id+'/reactions', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({username:user, emoji:em})}); const r=await fetch(API+'/api/comments/'+c.id+'/reactions'); const updated=await r.json(); setReactions(prev=>({...prev,[c.id]:updated})); }}>
+              {em} {(reactions[c.id]||[]).filter(x=>x.emoji===em).length}
+            </button>
+          ))}
+        </div>
         <button onClick={()=>{ setReplyTo(replyTo===c.id?null:c.id); setReplyText(''); }}>↩ Reply</button>
         {replyTo===c.id && (
           <div className="reply-box">
@@ -305,6 +332,7 @@ function Comments({ articleId, user, setView, setSelectedAuthor }) {
         <select value={sort} onChange={e=>setSort(e.target.value)}>
           <option value="newest">Newest</option>
           <option value="oldest">Oldest</option>
+          <option value="top">Top</option>
         </select>
       </div>
       <div className="comment-input">
@@ -370,6 +398,26 @@ function AuthorArticles({ author, onSelect }) {
       </div>
     </div>
   );
+}
+
+function SystemLog() {
+  const ref = useRef(null);
+  const termRef = useRef(null);
+  useEffect(() => {
+    const term = new Terminal({ theme: { background:'#000000', foreground:'#ffffff' } });
+    const fit = new FitAddon();
+    term.loadAddon(fit);
+    term.open(ref.current);
+    fit.fit();
+    termRef.current = term;
+    fetch(API+'/api/logs').then(r=>r.json()).then(lines=>{ lines.forEach(l=>term.writeln(l)); });
+    const s = io(API);
+    s.on('system:log', (line) => term.writeln(line));
+    const onResize = () => fit.fit();
+    window.addEventListener('resize', onResize);
+    return () => { window.removeEventListener('resize', onResize); s.disconnect(); term.dispose(); };
+  }, []);
+  return <div className="log-wrap"><div ref={ref} className="xterm-host"></div></div>;
 }
 
 function Sitemap() {
