@@ -348,21 +348,21 @@ function ChatroomEmbed({ chatroomId, articleId, user, originCommentId }) {
   const [open, setOpen] = useState(false);
   const [msgs, setMsgs] = useState([]);
   const [text, setText] = useState('');
+  const socketRef = useRef(null);
   useEffect(() => {
     if (open) {
       fetch(API+'/api/chatrooms/'+chatroomId+'/messages').then(r=>r.json()).then(setMsgs);
       fetch(API+'/api/chatrooms/'+chatroomId+'/read', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({username:user})});
       const s = io(API);
-      s.emit('join', 'chat:'+chatroomId);
+      socketRef.current = s;
+      s.on('connect', () => s.emit('join', 'chat:'+chatroomId));
       s.on('chat:message', (m) => setMsgs(prev=>[...prev, m]));
-      return () => s.disconnect();
+      return () => { s.disconnect(); socketRef.current=null; };
     }
   }, [open, chatroomId]);
   const send = () => {
-    const s = io(API);
-    s.emit('chat:message', {chatroom_id:chatroomId, username:user, text});
-    setText('');
-    s.disconnect();
+    const s = socketRef.current;
+    if(s && text.trim()){ s.emit('chat:message', {chatroom_id:chatroomId, username:user, text}); setText(''); }
   };
   return (
     <div className="chatroom-embed">
@@ -410,8 +410,9 @@ function SystemLog() {
     term.open(ref.current);
     fit.fit();
     termRef.current = term;
-    fetch(API+'/api/logs').then(r=>r.json()).then(lines=>{ lines.forEach(l=>term.writeln(l)); });
+    fetch(API+'/api/logs').then(r=>r.json()).then(lines=>{ lines.forEach(l=>term.writeln(l)); }).catch(()=>term.writeln('log fetch failed'));
     const s = io(API);
+    s.on('connect', ()=>term.writeln('*** connected to log stream ***'));
     s.on('system:log', (line) => term.writeln(line));
     const onResize = () => fit.fit();
     window.addEventListener('resize', onResize);
