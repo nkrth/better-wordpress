@@ -15,6 +15,7 @@ export default function App() {
   const [articles, setArticles] = useState([]);
   const [requests, setRequests] = useState([]);
   const [unread, setUnread] = useState(0);
+  const [notifications, setNotifications] = useState([]);
 
   useEffect(() => {
     if (!user) return;
@@ -23,6 +24,8 @@ export default function App() {
     const loadUnread = () => fetch(API+'/api/unread?username='+encodeURIComponent(user)).then(r=>r.json()).then(d=>setUnread(d.unread)).catch(()=>{});
     loadUnread();
     const iv = setInterval(loadUnread, 10000);
+    const loadNotifs = () => fetch(API+'/api/notifications?username='+encodeURIComponent(user)).then(r=>r.json()).then(setNotifications).catch(()=>{});
+    loadNotifs();
     return () => clearInterval(iv);
   }, [user, view]);
 
@@ -43,6 +46,8 @@ export default function App() {
           <button onClick={()=>setView('catalogue')}>📚 Catalogue</button>
           <button onClick={()=>setView('sitemap')}>🗺️ Sitemap</button>
           <button onClick={()=>setView('logs')}>🧾 System Log</button>
+          <button onClick={()=>setView('chatrooms')}>💬 Chatrooms</button>
+          <button onClick={()=>setView('notifications')}>🔔 Notifications</button>
           <button onClick={()=>{setSelected(null); setView('editor');}}>✍️ New Article</button>
           <span className="userbadge">👤 {user} {unread>0 && <span className="unread-badge">{unread}</span>}</span>
         </div>
@@ -54,6 +59,8 @@ export default function App() {
       {view==='author' && <AuthorArticles author={selectedAuthor} onSelect={(a)=>{setSelected(a); setView('article');}} />}
       {view==='sitemap' && <Sitemap />}
       {view==='logs' && <SystemLog />}
+      {view==='chatrooms' && <ChatroomsView user={user} />}
+      {view==='notifications' && <NotificationsView user={user} />}
     </div>
   );
 }
@@ -196,6 +203,7 @@ function Editor({ user, articleId, onPublish }) {
         <button onClick={()=>cmd('bold')}><b>B</b></button>
         <button onClick={()=>cmd('italic')}><i>I</i></button>
         <button onClick={()=>cmd('formatBlock','h2')}>H2</button>
+        <button onClick={()=>{ const url=prompt('Image URL'); if(url) document.execCommand('insertImage', false, url); }}>🖼️ Image</button>
         <button onClick={publish}>Publish</button>
         <div className="collab-avatars">
           {collabs.map(c=> <span key={c.username} className="avatar" title={c.username+' ('+c.role+')'}>{c.username[0].toUpperCase()}</span>)}
@@ -421,19 +429,44 @@ function SystemLog() {
   return <div className="log-wrap"><div ref={ref} className="xterm-host"></div></div>;
 }
 
+function ChatroomsView({ user }) {
+  const [rooms, setRooms] = useState([]);
+  useEffect(() => { fetch(API+'/api/chatrooms').then(r=>r.json()).then(setRooms); }, []);
+  return (
+    <div className="catalogue">
+      <h2>💬 Chatrooms</h2>
+      {rooms.map(r=> <ChatroomEmbed key={r.id} chatroomId={r.id} articleId={r.article_id} user={user} originCommentId={r.comment_id} />)}
+    </div>
+  );
+}
+function NotificationsView({ user }) {
+  const [items, setItems] = useState([]);
+  useEffect(() => { fetch(API+'/api/notifications?username='+encodeURIComponent(user)).then(r=>r.json()).then(setItems); fetch(API+'/api/notifications/read', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({username:user})}); }, [user]);
+  return (
+    <div className="catalogue">
+      <h2>🔔 Notifications</h2>
+      {items.map(n=> <div key={n.id} className="request-card">{n.text} <span className="ts">{new Date(n.created_at).toLocaleString()}</span></div>)}
+    </div>
+  );
+}
+
 function Sitemap() {
-  const steps = ['Landing: type request','Claim request -> Editor','Write & autosave','Publish -> Catalogue','Read article','Comment thread','Escalate to chatroom'];
+  const nodes = ['Landing','Request','Editor','Catalogue','Article','Comments','Chatroom','Revisions','Profile'];
+  const edges = [[0,1],[1,2],[2,3],[3,4],[4,5],[5,6],[2,7],[4,8]];
+  const R = 180; const cx=220, cy=220;
+  const pos = nodes.map((n,i)=>({ x: cx + R*Math.cos(i*2*Math.PI/nodes.length), y: cy + R*Math.sin(i*2*Math.PI/nodes.length) }));
   return (
     <div className="sitemap">
-      <h2>Site Flow</h2>
-      <div className="flow">
-        {steps.map((s,i)=>(
-          <div className="flow-step" key={i} style={{animationDelay: (i*0.2)+'s'}}>
-            {s}
-            {i<steps.length-1 && <span className="arrow">→</span>}
-          </div>
+      <h2>🗺️ Site Graph</h2>
+      <svg width="440" height="440" className="graph">
+        {edges.map(([a,b],i)=> <line key={i} x1={pos[a].x} y1={pos[a].y} x2={pos[b].x} y2={pos[b].y} stroke="#d6d6d6" strokeWidth="1.5" />)}
+        {nodes.map((n,i)=> (
+          <g key={i}>
+            <circle cx={pos[i].x} cy={pos[i].y} r="26" fill="#1a1a1a" />
+            <text x={pos[i].x} y={pos[i].y+4} textAnchor="middle" fill="#ffffff" fontSize="9">{n}</text>
+          </g>
         ))}
-      </div>
+      </svg>
     </div>
   );
 }

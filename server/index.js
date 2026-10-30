@@ -7,6 +7,7 @@ try { db.prepare('ALTER TABLE articles ADD COLUMN parent_id INTEGER').run(); } c
 try { db.prepare('ALTER TABLE articles ADD COLUMN tags TEXT NOT NULL DEFAULT \'\'').run(); } catch(e){}
 db.exec('CREATE TABLE IF NOT EXISTS revisions (id INTEGER PRIMARY KEY AUTOINCREMENT, article_id INTEGER NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, saved_at INTEGER NOT NULL, saved_by TEXT NOT NULL);');
 db.exec('CREATE TABLE IF NOT EXISTS chat_reads (username TEXT NOT NULL, chatroom_id INTEGER NOT NULL, last_read_at INTEGER NOT NULL, PRIMARY KEY (username, chatroom_id));');
+db.exec('CREATE TABLE IF NOT EXISTS notifications (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, text TEXT NOT NULL, link TEXT, created_at INTEGER NOT NULL, read_at INTEGER);');
 require('./seed');
 
 const app = express();
@@ -74,8 +75,12 @@ app.get('/api/articles/:id/revisions', (req,res)=> res.json(db.prepare('SELECT *
 app.post('/api/articles/:id/collaborators', (req,res)=>{
   const { username, role } = req.body;
   try { db.prepare('INSERT INTO article_collaborators(article_id,username,role) VALUES(?,?,?)').run(req.params.id, username, role); } catch(e){}
+  db.prepare('INSERT INTO notifications(username,text,link,created_at) VALUES(?,?,?,?)').run(username, 'You were invited as '+role+' on article '+req.params.id, '/article/'+req.params.id, Date.now());
+  logEvent('collaborator invited: '+username+' to article '+req.params.id);
   res.json({ok:true});
 });
+app.get('/api/notifications', (req,res)=> res.json(db.prepare('SELECT * FROM notifications WHERE username=? ORDER BY created_at DESC LIMIT 50').all(req.query.username)));
+app.post('/api/notifications/read', (req,res)=>{ db.prepare('UPDATE notifications SET read_at=? WHERE username=?').run(Date.now(), req.body.username); res.json({ok:true}); });
 
 // comments
 app.get('/api/articles/:id/comments', (req,res)=>{
@@ -129,6 +134,7 @@ app.get('/api/chatrooms/by-comment/:commentId', (req,res)=>{
   res.json(r||null);
 });
 app.get('/api/articles/:id/chatrooms', (req,res)=> res.json(db.prepare('SELECT * FROM chatrooms WHERE article_id=?').all(req.params.id)));
+app.get('/api/chatrooms', (req,res)=> res.json(db.prepare('SELECT * FROM chatrooms ORDER BY created_at DESC').all()));
 app.get('/api/chatrooms/:id/messages', (req,res)=> res.json(db.prepare('SELECT * FROM messages WHERE chatroom_id=? ORDER BY created_at ASC').all(req.params.id)));
 app.post('/api/chatrooms/:id/read', (req,res)=>{ const { username } = req.body; db.prepare('INSERT INTO chat_reads(username,chatroom_id,last_read_at) VALUES(?,?,?) ON CONFLICT(username,chatroom_id) DO UPDATE SET last_read_at=excluded.last_read_at').run(username, req.params.id, Date.now()); res.json({ok:true}); });
 app.get('/api/logs', (req,res)=> res.json(logBuffer));
