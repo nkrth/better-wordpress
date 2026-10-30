@@ -1,6 +1,6 @@
 # CollabPress
 
-Live demo: https://deeper-windsor-political-buddy.trycloudflare.com
+Live demo: https://ide-fellowship-consequently-effective.trycloudflare.com
 
 Collaborative article publishing platform.
 
