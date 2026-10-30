@@ -92,9 +92,12 @@ app.post('/api/articles/:id/comments', (req,res)=>{
   const all = db.prepare('SELECT id,parent_id FROM comments WHERE article_id=?').all(req.params.id);
   function rootOf(id){ let c=id; let p; do { const r=all.find(x=>x.id===c); p=r?r.parent_id:null; if(p) c=p; } while(p); return c; }
   const cnt = all.filter(c=>rootOf(c.id)===root).length;
-  const TH = parseInt(process.env.CHAT_THRESHOLD||'30');
+  const TH = parseInt(process.env.CHAT_THRESHOLD||'4');
   let escalated=false;
-  if(cnt>=TH){
+  // depth of new comment
+  let depth=0; let p=parent_id;
+  while(p){ const row=db.prepare('SELECT parent_id FROM comments WHERE id=?').get(p); if(!row) break; depth++; p=row.parent_id; }
+  if(cnt>=TH || depth>=3){
     const existing = db.prepare('SELECT * FROM chatrooms WHERE comment_id=?').get(root);
     if(!existing){ db.prepare('INSERT INTO chatrooms(comment_id,article_id,created_at) VALUES(?,?,?)').run(root, req.params.id, Date.now()); escalated=true; }
   }
