@@ -242,6 +242,8 @@ function Comments({ articleId, user, setView, setSelectedAuthor }) {
   const [sort, setSort] = useState('newest');
   const [editingId, setEditingId] = useState(null);
   const [editText, setEditText] = useState('');
+  const [replyTo, setReplyTo] = useState(null);
+  const [replyText, setReplyText] = useState('');
   useEffect(() => {
     fetch(API+'/api/articles/'+articleId+'/comments').then(r=>r.json()).then(setComments);
   }, [articleId]);
@@ -277,6 +279,14 @@ function Comments({ articleId, user, setView, setSelectedAuthor }) {
           </div>
         ) : (
           <div className="comment-text">{c.text}</div>
+        )}
+        <button onClick={()=>{ setReplyTo(replyTo===c.id?null:c.id); setReplyText(''); }}>↩ Reply</button>
+        {replyTo===c.id && (
+          <div className="reply-box">
+            <div className="comment-edit" contentEditable onInput={e=>setReplyText(e.currentTarget.innerHTML)}></div>
+            <button onClick={async()=>{ await fetch(API+'/api/articles/'+articleId+'/comments', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({parent_id:c.id, username:user, text:replyText})}); const r=await fetch(API+'/api/articles/'+articleId+'/comments'); setComments(await r.json()); const cr=await fetch(API+'/api/articles/'+articleId+'/chatrooms'); setChatrooms(await cr.json()); setReplyTo(null); setReplyText(''); }}>Post reply</button>
+            <button onClick={()=>setReplyTo(null)}>Cancel</button>
+          </div>
         )}
         {c.username===user && <button className="del" onClick={async()=>{ await fetch(API+'/api/comments/'+c.id,{method:'DELETE'}); const r=await fetch(API+'/api/articles/'+articleId+'/comments'); setComments(await r.json()); }}>Delete</button>}
         {c.username===user && <button onClick={()=>{setEditingId(c.id); setEditText(c.text);}}>Edit</button>}
